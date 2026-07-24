@@ -1741,6 +1741,20 @@ async function downloadPDF() {
       doc.setTextColor(30,26,21); y+=8;
     }
 
+    // Risk-band colours, matching the key on the WMS RAMS risk matrix:
+    // Low 1-4 green, Moderate 5-9 yellow, Considerable 10-14 orange,
+    // High 15-19 red, Critical 20-25 dark red. (Exact fills from WMS doc.)
+    function riskBand(v){
+      v=parseInt(v,10);
+      if(!v||v<1) return null;
+      if(v<=4) return [0,176,80];      // #00B050
+      if(v<=9) return [255,255,0];     // #FFFF00
+      if(v<=14) return [255,192,0];    // #FFC000
+      if(v<=19) return [255,0,0];      // #FF0000
+      return [192,0,0];                // #C00000
+    }
+    // Only the two computed risk-score columns are shaded (not S/P).
+    var RISK_COLS=[6,10];
     function raRow(ref,activity,hazard,affected,sev,prob,risk,controls,sevA,probA,riskA) {
       doc.setFont('helvetica','normal'); doc.setFontSize(5.5); doc.setTextColor(30,26,21);
       function breakable(t){ return String(t).replace(/\\//g,'/ '); }
@@ -1754,18 +1768,32 @@ async function downloadPDF() {
       cellLines.forEach(function(ls){ if(ls.length>maxLines) maxLines=ls.length; });
       var rowH=Math.max(maxLines*3+3, 10);
       np(rowH+3);
+      // Shade the risk-score cells by band BEFORE drawing borders/text
+      var px=M;
+      for(var ci=0;ci<g.length;ci++){
+        if(RISK_COLS.indexOf(ci)>=0){
+          var rgb=riskBand(cellRaw[ci]);
+          if(rgb){ doc.setFillColor(rgb[0],rgb[1],rgb[2]); doc.rect(px,y,g[ci],rowH,'F'); }
+        }
+        px+=g[ci];
+      }
       doc.setDrawColor(180,180,180); doc.setLineWidth(0.15);
       doc.rect(M,y,CW,rowH,'D');
       var dx=M; g.forEach(function(w){dx+=w; doc.line(dx,y,dx,y+rowH);});
       var cx=M;
       cellLines.forEach(function(lines,i){
         var isNum=(i>=4&&i<=6)||(i>=8&&i<=10);
+        // White text on the dark High/Critical bands for legibility, else dark
+        if(RISK_COLS.indexOf(i)>=0 && riskBand(cellRaw[i]) && parseInt(cellRaw[i],10)>=15){
+          doc.setTextColor(255,255,255);
+        } else { doc.setTextColor(30,26,21); }
         lines.forEach(function(l,li){
           if(isNum){ doc.text(l,cx+g[i]/2,y+3.5+li*3,{align:'center'}); }
           else { doc.text(l,cx+1,y+3.5+li*3); }
         });
         cx+=g[i];
       });
+      doc.setTextColor(30,26,21);
       y+=rowH+1;
     }
 
