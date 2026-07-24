@@ -1870,23 +1870,69 @@ async function downloadPDF() {
     trow(['Signature of Assessor:',d.siteManagerName||d.pmName||'','Date:',d.issueDate||''],[c1/2,c2/2,c1/2,c2/2]);
     y+=6;
 
-    // Risk key table
-    np(35);
+    // ===== Risk key - coloured, matching the WMS RAMS matrix key =====
+    np(80);
+    var keyTop=y;
+    var sh=6; // row height for the description/legend tables
+    doc.setDrawColor(150,150,150); doc.setLineWidth(0.2);
+    // -- Severity descriptions (left) --
     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(30,26,21);
-    doc.text('Severity',M,y); doc.text('Likelihood',M+CW/2,y); y+=5;
-    doc.setFont('helvetica','normal'); doc.setFontSize(7);
-    [['1','Insignificant / Minor / No Time Off, No loss','1','Impracticable'],
-     ['2','Lost Time, Recoverable Strains, Sprains, Dermatitis','2','Low'],
-     ['3','Temporary Disability, Recoverable Minor Fracture','3','Medium'],
-     ['4','Permanent Disability, Survivable, Major Fractures','4','High'],
-     ['','','5','Almost Certain']].forEach(function(r){
-      doc.text(r[0]+'  '+r[1],M,y);
-      doc.text(r[2]+'  '+r[3],M+CW/2,y);
-      y+=4;
+    doc.text('Severity',M,keyTop);
+    var sy=keyTop+2, sw1=6, sw2=82;
+    [['1','Insignificant / Minor / No Time Off, No loss'],
+     ['2','Lost Time, Recoverable Strains, Sprains, Dermatitis'],
+     ['3','Temporary Disability, Recoverable Minor Fracture'],
+     ['4','Permanent Disability, Survivable, Major Fractures']].forEach(function(r){
+      doc.rect(M,sy,sw1,sh,'D'); doc.rect(M+sw1,sy,sw2,sh,'D');
+      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.text(r[0],M+sw1/2,sy+4,{align:'center'});
+      doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+      doc.text(doc.splitTextToSize(r[1],sw2-2)[0],M+sw1+1.5,sy+4);
+      sy+=sh;
     });
-    y+=2;
-    doc.setFont('helvetica','normal'); doc.setFontSize(7);
-    doc.text('Low 1-4    Moderate 5-9    Considerable 10-14    High 15-19    Critical 20-25',M,y); y+=6;
+    var sevBottom=sy;
+    // -- Likelihood descriptions (right) --
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(30,26,21);
+    var LX=M+98; doc.text('Likelihood',LX,keyTop);
+    var ly=keyTop+2, lw1=6, lw2=34;
+    [['1','Impracticable'],['2','Low'],['3','Medium'],['4','High'],['5','Almost Certain']].forEach(function(r){
+      doc.rect(LX,ly,lw1,sh,'D'); doc.rect(LX+lw1,ly,lw2,sh,'D');
+      doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.text(r[0],LX+lw1/2,ly+4,{align:'center'});
+      doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.text(r[1],LX+lw1+1.5,ly+4);
+      ly+=sh;
+    });
+    // -- Band legend with colour swatches (right, below likelihood) --
+    var by=ly+3, bw1=26, bw2=18;
+    [['Low','1 - 4',1],['Moderate','5 - 9',5],['Considerable','10 - 14',10],['High','15 - 19',15],['Critical','20 - 25',20]].forEach(function(r){
+      var rgb=riskBand(r[2]);
+      doc.setDrawColor(150,150,150); doc.rect(LX,by,bw1,sh,'D');
+      doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(30,26,21); doc.text(r[0],LX+1.5,by+4);
+      doc.setFillColor(rgb[0],rgb[1],rgb[2]); doc.rect(LX+bw1,by,bw2,sh,'FD');
+      doc.setTextColor(r[2]>=15?255:30,r[2]>=15?255:26,r[2]>=15?255:21);
+      doc.text(r[1],LX+bw1+bw2/2,by+4,{align:'center'});
+      by+=sh;
+    });
+    doc.setTextColor(30,26,21);
+    // -- Coloured 5x5 risk matrix (left, below severity) --
+    var my0=sevBottom+8, mx0=M+16, cw=9, ch=6;
+    doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(30,26,21);
+    doc.text('Severity of',M,my0+11); doc.text('Consequence',M,my0+14.5);
+    var sevAxis=[5,4,3,2,1];
+    for(var ri=0;ri<5;ri++){
+      doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(30,26,21);
+      doc.text(String(sevAxis[ri]),mx0-3,my0+ri*ch+4,{align:'center'});
+      for(var cj=0;cj<5;cj++){
+        var val=sevAxis[ri]*(cj+1), rgb=riskBand(val);
+        doc.setFillColor(rgb[0],rgb[1],rgb[2]); doc.setDrawColor(120,120,120); doc.setLineWidth(0.2);
+        doc.rect(mx0+cj*cw,my0+ri*ch,cw,ch,'FD');
+        doc.setTextColor(val>=15?255:30,val>=15?255:26,val>=15?255:21);
+        doc.text(String(val),mx0+cj*cw+cw/2,my0+ri*ch+4,{align:'center'});
+      }
+    }
+    doc.setTextColor(30,26,21); doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
+    for(var cj=0;cj<5;cj++){ doc.text(String(cj+1),mx0+cj*cw+cw/2,my0+5*ch+4,{align:'center'}); }
+    doc.text('Likelihood',mx0+(cw*5)/2,my0+5*ch+8,{align:'center'});
+    y=Math.max(by, my0+5*ch+12)+4;
+    doc.setTextColor(30,26,21);
 
 
         // Also add user-added hazards if any
