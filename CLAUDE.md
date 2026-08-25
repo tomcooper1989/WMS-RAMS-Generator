@@ -24,7 +24,21 @@ Most of that size is the inlined **jsPDF** library and ~13 base64 `data:` images
 | `collectData()` | Reads every form field into one `d` object. Falls back to `[Placeholders]` |
 | `buildSummary()` / `buildPreview()` | Step-8 summary grid + on-screen HTML preview |
 | `downloadPDF()` | **The big one** — builds the entire PDF, then `doc.save(fname)` |
-| `raHeader()` / `raRow()` | Render the construction risk-assessment tables (inside `downloadPDF`) |
+| `raHeader()` / `raRow()` | Render the construction risk-assessment tables (inside `downloadPDF`). `raRow()` shades the "Risk Level Before/After Controls" cells by band (see Risk-assessment colour key below) |
+| `riskBand(score)` | Maps a risk score to its band + colour: 1-4 Low `#00B050`, 5-9 Moderate `#FFFF00`, 10-14 Considerable `#FFC000`, 15-19 High `#FF0000`, 20-25 Critical `#C00000`. Shared by `raRow()` and the printed key so they can't drift apart |
+| `milesBetween()` | Haversine distance (added 2026-07-24, replaced a flat-Euclidean-degrees calc that overstated distance ~61% at UK latitudes) — used for nearest-A&E sorting/mileage |
+| `escHtml()` | Escapes user text before it goes into the on-screen preview's `innerHTML` (added 2026-07-24) |
+
+### Risk-assessment colour key (added 2026-07-24, to match a client-supplied format)
+The RA table's two computed score columns are shaded by `riskBand()`, and a full coloured key/legend
+(severity + likelihood description tables, colour-swatched band legend, 5×5 risk matrix) is printed
+to match a reference document's page-18 key. Laid out as two columns since the app is portrait and
+the reference was landscape — same colours/numbers, different arrangement.
+
+### Autosave (added 2026-07-24)
+Form data (including PPE/system card selections) is saved to `localStorage` as you type (~1s debounce)
+and restored on reload with a banner + "Start fresh" button. Silently no-ops in private/incognito
+windows. Persists even after a PDF download — only "Start fresh" clears it.
 
 ### PDF conventions (inside `downloadPDF`)
 A4 portrait, units in **mm**: `M=18` (margin), `PW=210`, `CW=174` (content width).
@@ -58,7 +72,23 @@ text extraction will not reveal layout bugs like overlapping columns.
    ```
    The Read tool's built-in PDF rendering needs poppler and will fail — use PyMuPDF.
 
+## In progress — not live
+
+**Liam Iddon's RAMS content update** (branch `liam-rams-update`, last touched 2026-07-24, **not pushed
+to GitHub** — check `git branch -a` / `git log liam-rams-update` before assuming it's gone). Liam
+(WMS UK) wants his RA format/content matched exactly; this branch has AmbiTak's Scope/Sequence
+rewritten to his wording plus the colour-coded RA cells and key above, as a sample only. Tom said
+explicitly not to merge to `main` until he's reviewed it — sample PDFs are at
+`Desktop\AI Devs\2.  RAMS\SAMPLE - AmbiTak RAMS v2 (with key - NOT LIVE).pdf`. Other systems and
+Liam's promised screeding/concrete RAMS updates are not yet incorporated. Full details in the
+`liam-rams-content-update-in-progress` memory file.
+
 ## Gotchas
+
+- **Don't trust copies of `index.html` outside this repo.** Dozens of stale duplicates exist across
+  Tom's Desktop/Downloads/OneDrive with misleading names/dates. Verify by content hash against this
+  repo's `main`, not by filename — see the `stale-duplicate-html-copies` memory file for a concrete
+  example of this causing confusion.
 
 - **Duplicated risk-assessment section (fixed 2026-07-21, commit `142e7c3`).** The RA content
   was coded **twice**. The first block drew the *Hazard / Affected / S* cells as single
