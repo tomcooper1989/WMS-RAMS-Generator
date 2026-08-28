@@ -1590,7 +1590,12 @@ function buildWordDocument(d, mapImgData) {
     } catch (e) { lSrc = lEl.src; }
   }
   out.push('<div style="text-align:center;padding-bottom:10px;border-bottom:3px solid #AB242A;margin-bottom:14px">');
-  if (lSrc) out.push('<img src="' + lSrc + '" style="height:55px;display:block;margin:0 auto 6px">');
+  if (lSrc) {
+    // Word's HTML-import ignores CSS sizing on <img> and falls back to native pixel
+    // dimensions, so explicit width/height attributes are required (not just style).
+    var logoH = 55, logoW = Math.round(logoH * (lEl.naturalWidth / lEl.naturalHeight));
+    out.push('<img src="' + lSrc + '" width="' + logoW + '" height="' + logoH + '" style="display:block;margin:0 auto 6px">');
+  }
   out.push('<div style="font-size:12pt;color:#666;font-weight:bold">Health and Safety and Risk Assessment Manual</div></div>');
 
   out.push('<h2>Project and H&amp;S Submittal Details</h2>');
@@ -1673,7 +1678,10 @@ function buildWordDocument(d, mapImgData) {
     var sysName = sysData ? sysData.name : key;
     var imgObj = getSysImage(key);
     out.push('<h3>' + esc(sysName) + ' Cross-Section Diagram</h3>');
-    if (imgObj) out.push('<p><img src="' + imgObj.data + '" style="max-width:100%;border:1px solid #ccc"></p>');
+    if (imgObj) {
+      var dW = 600, dH = Math.round(dW * (imgObj.h / imgObj.w));
+      out.push('<p><img src="' + imgObj.data + '" width="' + dW + '" height="' + dH + '" style="border:1px solid #ccc"></p>');
+    }
     if (sysData && sysData.sequence) {
       h2(sysName + ' - Sequence of Operations');
       para(sysData.sequence);
@@ -1698,7 +1706,12 @@ function buildWordDocument(d, mapImgData) {
   ]);
   para('For directions use sat nav with address: ' + d.hospitalName + ', ' + d.hospitalAddress);
   if (hospitalLat && siteLat) para('Approx. straight-line distance from site to nearest A&E: ' + Math.round(milesBetween(siteLat, siteLng, hospitalLat, hospitalLng)) + ' miles');
-  if (mapImgData) out.push('<p><img src="' + mapImgData + '" style="max-width:100%;border:1px solid #ccc"></p>');
+  if (mapImgData) {
+    // Fixed aspect ratio (0.47) baked into buildMapImage()'s crop, so a fixed
+    // display width is safe here without measuring the image.
+    var mW = 600, mH = Math.round(mW * 0.47);
+    out.push('<p><img src="' + mapImgData + '" width="' + mW + '" height="' + mH + '" style="border:1px solid #ccc"></p>');
+  }
   h2('27. Other Information and Comments');
   [
     '1) Valid CSCS cards must be shown at induction.',
