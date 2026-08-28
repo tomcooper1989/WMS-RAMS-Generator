@@ -1548,6 +1548,40 @@ var WORD_RA_TASK = [
     '2', '2', '4']
 ];
 
+// Word's HTML importer is unreliable with large base64 data URIs - rather than
+// embed a full-resolution image and rely on width/height attributes to shrink the
+// display box (which it sometimes ignores, or fails silently on for big enough
+// payloads), these draw the source onto a canvas already sized for the page so the
+// embedded bytes themselves are small. 1.5x the display size keeps it print-sharp.
+function wordScaledImage(imgEl, maxW, fmt, quality) {
+  if (!imgEl || !imgEl.complete || !imgEl.naturalWidth) return null;
+  try {
+    var ratio = imgEl.naturalHeight / imgEl.naturalWidth;
+    var dispW = maxW, dispH = Math.round(dispW * ratio);
+    var c = document.createElement('canvas');
+    c.width = Math.round(dispW * 1.5); c.height = Math.round(dispH * 1.5);
+    c.getContext('2d').drawImage(imgEl, 0, 0, c.width, c.height);
+    return {data: c.toDataURL(fmt || 'image/png', quality), w: dispW, h: dispH};
+  } catch (e) { return null; }
+}
+function wordScaledImageFromDataUrl(dataUrl, maxW, fmt, quality) {
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      try {
+        var ratio = img.naturalHeight / img.naturalWidth;
+        var dispW = maxW, dispH = Math.round(dispW * ratio);
+        var c = document.createElement('canvas');
+        c.width = Math.round(dispW * 1.5); c.height = Math.round(dispH * 1.5);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve({data: c.toDataURL(fmt || 'image/jpeg', quality), w: dispW, h: dispH});
+      } catch (e) { resolve(null); }
+    };
+    img.onerror = function() { resolve(null); };
+    img.src = dataUrl;
+  });
+}
+
 function buildWordDocument(d, mapImgData) {
   var out = [];
   function esc(v) { return escHtml(v == null ? '' : v); }
@@ -1576,7 +1610,7 @@ function buildWordDocument(d, mapImgData) {
 
   // Cover / header
   var lEl = document.getElementById('wmsLogo');
-  var lSrc = '';
+  var lSrc = '', logoW = 0, logoH = 0;
   if (lEl && lEl.complete && lEl.naturalWidth) {
     try {
       var tc = document.createElement('canvas');
@@ -1586,17 +1620,20 @@ function buildWordDocument(d, mapImgData) {
       var pd = id.data;
       for (var i = 0; i < pd.length; i += 4) { if (pd[i] < 40 && pd[i+1] < 40 && pd[i+2] < 40) pd[i+3] = 0; }
       tx.putImageData(id, 0, 0);
-      lSrc = tc.toDataURL('image/png');
-    } catch (e) { lSrc = lEl.src; }
+      // Downscale the actual pixel data to display size before embedding. Word's
+      // HTML importer is unreliable with large base64 data URIs (it can silently
+      // drop the image rather than just mis-sizing it), so width/height attributes
+      // alone aren't enough - shrink the bytes, not just the display box.
+      logoH = 55; logoW = Math.round(logoH * (lEl.naturalWidth / lEl.naturalHeight));
+      var rc = document.createElement('canvas');
+      rc.width = logoW * 2; rc.height = logoH * 2;
+      rc.getContext('2d').drawImage(tc, 0, 0, rc.width, rc.height);
+      lSrc = rc.toDataURL('image/png');
+    } catch (e) { lSrc = lEl.src; logoH = 55; logoW = Math.round(logoH * (lEl.naturalWidth / lEl.naturalHeight)); }
   }
-  out.push('<div style="text-align:center;padding-bottom:10px;border-bottom:3px solid #AB242A;margin-bottom:14px">');
-  if (lSrc) {
-    // Word's HTML-import ignores CSS sizing on <img> and falls back to native pixel
-    // dimensions, so explicit width/height attributes are required (not just style).
-    var logoH = 55, logoW = Math.round(logoH * (lEl.naturalWidth / lEl.naturalHeight));
-    out.push('<img src="' + lSrc + '" width="' + logoW + '" height="' + logoH + '" style="display:block;margin:0 auto 6px">');
-  }
-  out.push('<div style="font-size:12pt;color:#666;font-weight:bold">Health and Safety and Risk Assessment Manual</div></div>');
+  out.push('<div style="text-align:center;margin-bottom:14px">');
+  if (lSrc) out.push('<img src="' + lSrc + '" width="' + logoW + '" height="' + logoH + '" style="display:block;margin:0 auto 6px">');
+  out.push('<div style="background:#AB242A;color:#fff;font-size:13pt;font-weight:bold;padding:10px 0">Health and Safety and Risk Assessment Manual</div></div>');
 
   out.push('<h2>Project and H&amp;S Submittal Details</h2>');
   table([
@@ -1676,12 +1713,10 @@ function buildWordDocument(d, mapImgData) {
     if (key === 'breaking_concrete' || key === 'scc_concrete') return;
     var sysData = SYSTEM_DATA[key];
     var sysName = sysData ? sysData.name : key;
-    var imgObj = getSysImage(key);
+    var imgEl = document.getElementById('sysimg-' + key);
+    var imgObj = wordScaledImage(imgEl, 600);
     out.push('<h3>' + esc(sysName) + ' Cross-Section Diagram</h3>');
-    if (imgObj) {
-      var dW = 600, dH = Math.round(dW * (imgObj.h / imgObj.w));
-      out.push('<p><img src="' + imgObj.data + '" width="' + dW + '" height="' + dH + '" style="border:1px solid #ccc"></p>');
-    }
+    if (imgObj) out.push('<p><img src="' + imgObj.data + '" width="' + imgObj.w + '" height="' + imgObj.h + '" style="border:1px solid #ccc"></p>');
     if (sysData && sysData.sequence) {
       h2(sysName + ' - Sequence of Operations');
       para(sysData.sequence);
@@ -1923,6 +1958,12 @@ async function downloadWord() {
     var mapImgData = cachedMapImg;
     if (!mapImgData && hospitalLat && hospitalLng) {
       try { mapImgData = await buildMapImage(hospitalLat, hospitalLng); } catch (e) {}
+    }
+    if (mapImgData) {
+      try {
+        var shrunk = await wordScaledImageFromDataUrl(mapImgData, 600, 'image/jpeg', 0.85);
+        if (shrunk) mapImgData = shrunk.data;
+      } catch (e) {}
     }
     var html = buildWordDocument(d, mapImgData);
     var blob = new Blob(['﻿' + html], {type: 'application/msword'});
