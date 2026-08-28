@@ -1632,7 +1632,11 @@ function buildWordDocument(d, mapImgData) {
     } catch (e) { lSrc = lEl.src; logoH = 55; logoW = Math.round(logoH * (lEl.naturalWidth / lEl.naturalHeight)); }
   }
   out.push('<div style="text-align:center;margin-bottom:14px">');
-  if (lSrc) out.push('<img src="' + lSrc + '" width="' + logoW + '" height="' + logoH + '" style="display:block;margin:0 auto 18px">');
+  if (lSrc) {
+    // Matches the PDF's logo-to-banner gap, which is ~17% of logo height there
+    // (4mm gap under a ~23mm-tall logo) - not a guessed value.
+    out.push('<img src="' + lSrc + '" width="' + logoW + '" height="' + logoH + '" style="display:block;margin:0 auto ' + Math.round(logoH * 0.173) + 'px">');
+  }
   out.push('<div style="background:#AB242A;color:#fff;font-size:13pt;font-weight:bold;padding:10px 0">Health and Safety and Risk Assessment Manual</div></div>');
 
   out.push('<h2>Project and H&amp;S Submittal Details</h2>');
