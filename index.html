@@ -795,10 +795,15 @@ Completion of a signed Pressure Test Certificate (on per manifold basis) signifi
     <div class="doc-preview" id="docPreview"></div>
     <div class="gen-box">
       <h3>Download RAMS document</h3>
-      <p>Generates and downloads the complete RAMS as a PDF including all sections, H&amp;S policy, system diagrams, COSHH, HAVS and noise assessments.</p>
-      <button class="btn btn-success" onclick="downloadPDF()" id="genBtn" style="font-size:14px;padding:12px 26px">Download PDF</button>
+      <p>Generates and downloads the complete RAMS as a PDF or an editable Word document, including all sections, H&amp;S policy, system diagrams, COSHH, HAVS and noise assessments.</p>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-success" onclick="downloadPDF()" id="genBtn" style="font-size:14px;padding:12px 26px">Download PDF</button>
+        <button class="btn btn-primary" onclick="downloadWord()" id="genWordBtn" style="font-size:14px;padding:12px 26px">Download Word</button>
+      </div>
       <div class="gen-spinner" id="genSpinner"></div>
+      <div class="gen-spinner" id="genWordSpinner"></div>
       <div class="success-banner" id="successBanner">RAMS PDF and project file (.json) downloaded. Keep the .json file to amend this RAMS later.</div>
+      <div class="success-banner" id="successBannerWord">RAMS Word document downloaded. Edit freely for site-specific wording — Word/COSHH/HAVS layout is simplified compared to the PDF.</div>
     </div>
     <div class="nav-buttons"><button class="btn btn-ghost" onclick="prev()">&lsaquo; Back</button><span></span></div>
   </div>
@@ -1455,6 +1460,472 @@ async function buildMapImage(lat, lng) {
   }
 }
 
+
+// ====== WORD (.doc) EXPORT ======
+// Builds a full editable copy of the RAMS as MS-Word-compatible HTML (Word opens
+// HTML saved with a .doc extension as a native, fully editable document). Content
+// mirrors downloadPDF() section-for-section so Tom/site teams can tweak wording
+// for site-specific nuances without needing to touch the PDF pipeline.
+function wordRaBandColor(score) {
+  var v = parseInt(score, 10);
+  if (!v || v < 1) return null;
+  if (v <= 4) return '#00B050';
+  if (v <= 9) return '#FFFF00';
+  if (v <= 14) return '#FFC000';
+  if (v <= 19) return '#FF0000';
+  return '#C00000';
+}
+function wordRaCell(val, isScoreCol) {
+  if (!isScoreCol) return '<td>' + escHtml(val) + '</td>';
+  var bg = wordRaBandColor(val);
+  var v = parseInt(val, 10);
+  var style = bg ? 'background:' + bg + ';text-align:center;font-weight:bold;' + (v >= 15 ? 'color:#fff' : 'color:#1e1a15') : 'text-align:center';
+  return '<td style="' + style + '">' + escHtml(val) + '</td>';
+}
+function wordRaRow(cells) {
+  // cells: [ref,activity,hazard,affected,sev,prob,risk,controls,sevA,probA,riskA]
+  var scoreCols = [4, 5, 6, 8, 9, 10];
+  var out = '<tr>';
+  cells.forEach(function(c, i) { out += wordRaCell(c, scoreCols.indexOf(i) >= 0); });
+  return out + '</tr>';
+}
+var WORD_RA_GENERIC = [
+  ['1.0', 'Access/Egress to Site', 'Slip/Trip/Fall/Crush/Run Over', 'WMS Operatives', '3', '3', '9',
+    '1) Before entering the Site all personnel are to undertake an induction which will highlight the correct access and egress routes to the site or workface. These must be adhered to at all times to minimize the risk of pedestrians colliding with the site traffic and any unauthorized access to restricted areas. 2) Always be cautious of HGVs and plant. Wait for a thumbs up or confirmation that you have been seen by plant operatives when crossing or moving around heavy machinery. 3) Adhere to site speed limit when driving onto site. 4) PPE is required at all times to assist with visibility - Hi Vis Jacket/Vest',
+    '3', '1', '3'],
+  ['2.0', 'Noise', 'Deafness, Headaches, Falls', 'WMS Operatives and Other Site Personnel', '2', '3', '6',
+    '1) Battery operated power tools have been assessed and may be used in short bursts without protection. This will be limited to a maximum of 5-minute sessions with a clear 15-minute break between sessions. 2) Ensure Noise assessments of tools have been undertaken and follow specific guidance. 3) Avoid working near other trades creating noise where possible. If unavoidable, ear protection such as plugs and defenders should be utilized.',
+    '1', '3', '3'],
+  ['3.0', 'Vibration', 'HAVS', 'WMS Operatives', '3', '3', '9',
+    '1) Battery operated power tools including drill drivers and hand drills have been assessed and may be used for 8 hours a day without risk. We would recommend they are used in short bursts of no more than 5 minutes with breaks between uses. 2) Any other powered hand tools outside these will be assessed on a tool-by-tool basis. 3) When using power tools wear gloves to maintain a good grip on the tool and eye protection when drilling.',
+    '1', '3', '3'],
+  ['4.0', 'Sweeping up Debris', 'Inhalation of Dust / Toxins/Environment', 'WMS Operatives and Other Site Personnel', '3', '3', '9',
+    '1) Avoid using a brush where possible. A mechanical dust removal device or M-Class Vacuum should be used where possible (If power is available). 2) If sweeping is unavoidable ensure a well-ventilated area. If there is a window then ensure it is open. Dampen down dust. Also wear gloves and wash your hands when the task is finished. 3) If there will be a lot of airborne dust then wear safety goggles and FFP3 face mask. Also, ensure that anyone working in the area is aware of the activity and is also wearing a dust mask (minimum FFP3) and all of our operatives should be clean-shaven when using the dust masks.',
+    '1', '3', '3'],
+  ['5.0', 'Environmental Impacts', 'Contamination of Waste / Ground / Water Courses', 'Environment', '3', '2', '6',
+    '1) Every effort is made to reduce the amount of packaging on our materials and where packaging is used it should be recyclable. 2) Avoid excess material on site. 3) When discharging water from manifolds that have been hydrostatically tested, a suitable drain or collection point should be agreed with the site manager prior to starting works to adhere with their policies. 4) A skip will be provided by the main contractor for waste. The main contractor will inform WMS operatives at induction of the skip to be used for their waste. 5) Ensure any leftover materials and packaging are disposed of correctly.',
+    '1', '2', '2'],
+  ['6.0', 'Moving around Site', 'Slips, Trips and Falls', 'WMS Operatives and other trades', '3', '3', '9',
+    '1) All walkways should be free from obstructions, i.e. debris and materials. Provision of designated storage areas for materials should be established. 2) Planning of deliveries to minimize the amount of materials on site. Ensure that areas for waste collection skips and bins are clear and tidy. Spillages to be cleaned up promptly and effectively. 3) Ensure work areas are tidy and if obstructions cannot be removed, warn people using signs and/or barriers. 4) Ensure suitable footwear is worn/provided and in good condition. On stairs and slopes, handrails will be available for assistance. 5) Utilize battery operated equipment to eliminate trailing cables/leads where possible. Where lighting is to be provided, it is to be sufficient for the activity and lighting should enable people to see obstructions, potentially slippery areas. 6) Emergency lighting and signage to be provided by the Main Contractor to aid in case of an emergency.',
+    '2', '2', '4'],
+  ['7.0', 'Delivery / Off loading of materials', 'Crushing / Cuts / MH Injury', 'WMS Operatives / Other Site Personnel / Public', '3', '3', '9',
+    '1) The materials will be delivered to site on a pallet using approved transport companies. We would request mechanical assistance from the main contractor to offload the materials and set them next to the workface. 2) Where mechanical offload is not available, the courier should unload the pallet using a pallet truck, unloading in the designated storage area. 3) Where materials are to be transported around site, we would ask for mechanical assistance from the site team. If not available, large pallets of materials should be broken down and handled in smaller parcels. Over long distances we would recommend materials are transported using a van.',
+    '1', '3', '3'],
+  ['8.0', 'Storage of Materials', 'Crushing / Falling Materials / Cuts / MH Injury', 'WMS Operatives / Other Site Personnel', '2', '3', '6',
+    '1) The materials will be stored in an area that has been agreed with the main contractor. Due to the weight of the pipe drums the materials will be stored as close to the workface as possible to minimize carrying distances and double handling of materials. 2) The overall strategy for materials will be on a just-in-time basis.',
+    '1', '2', '2'],
+  ['9.0', 'Manual Handling', 'Back injuries, Muscle, ligament injuries', 'WMS Site Operatives', '4', '3', '12',
+    '1) Employees are trained in manual handling techniques and kinetic lifting. 2) Manual handling tasks are to be avoided as far as reasonably practicable. The use of mechanical lifting equipment is to be used where practicably possible. 3) Lifting aids i.e. pallet truck forklift to have undergone a planned preventative maintenance scheme to ensure good condition required under LOLER. 4) Load to be positioned mechanically, as close as possible to its final position, to reduce the distance for manual handling. 5) Before lifting, all manual lifts are to be planned by lifting operatives. Area of lift and route along which the load is to be transported, to be well lit, with a non-slip surface and free of trip hazards. 6) Appropriate personal protective equipment to be used by operatives involved in manual handling, safety footwear/hand protection and in good condition. 7) The load to be examined to determine its weight, dimensions and contents, or load may be subject to unexpected movements with sudden displacement of the weight. Where possible loads to be broken down into smaller components/pieces. Temporary resting facilities for the load to be designated/constructed (where required). 8) Team lifting will be carried out under the direction of a competent person ensuring good communication.',
+    '1', '3', '3']
+];
+var WORD_RA_TASK = [
+  ['1.0', 'Repairs to under Floor Heating Pipe.', 'Cuts, Puncture Wounds, Trapped Skin.', 'WMS Site Operatives', '2', '3', '6',
+    '1) Check manifold for pressure and release air or isolate water prior to any repair works. 2) Pipework to be cut following pipe cutter RA. 3) Repairs to be made using Ambiente Slim-Pull tool, following instructions included in the kit. 4) Keep fingers and loose items of clothing away from ratcheting mechanism. If excessive force is required to ratchet the tool it is likely that the mechanism is jammed. Release tension and ensure moving components are free from debris and lubricated and try the process again. This will avoid the risk of the tool slipping. 5) Operatives should wear cut 5 resistant gloves as included in the supplied PPE kit.',
+    '1', '2', '2'],
+  ['2.0', 'Pneumatic Pressure Testing Pipework', 'Pipe/Component Failure', 'WMS Operatives/ Other Workers', '3', '4', '12',
+    '1) Inform the site manager that pneumatic testing is taking place and request the necessary site permit if required. (Ensure any permits are closed out at the end of testing). 2) Before any system checks an exclusion zone around should be in place or the area separated from all other trades so any failure is contained. 3) The test will be completed by a trained WMS operative and signed off by the site manager. 4) Ensure all components on the manifold are secured tightly. (Perform pull test on pipework tails). And pressure test to 0.5 Bar. Turn off the compressor and inspect the pipework and components for any signs of leaks before continuing with the test. 5) The process will include gradual pressure increases of 1 bar until the desired pressure is met (3 Bar). 6) Leave the test for 30 minutes monitoring the area to ensure no one enters or interferes with the test. Once complete, the pressure can be reduced to 1 Bar. 7) Operatives should wear shatter resistant safety glasses, hard hat and gloves for this task as an additional safety measure.',
+    '2', '2', '4'],
+  ['3.0', 'Hydrostatic Pressure Testing Pipework', 'Pipe/Component Failure/Spills', 'WMS Operatives/ Other Workers', '2', '3', '6',
+    '1) Before any system checks an exclusion zone around should be in place or the area separated from all other trades so any failure is contained. 2) The test will be completed by a trained WMS operative and signed off by the site manager. 3) Ensure all components on the manifold are secured tightly. (Perform pull test on pipework tails). 4) Check filling machine is in good working condition and has been PAT tested within the last 3 months. 5) Once the manifold has been filled with water, before starting the pressure test, inspect the pipework and fittings for any signs of leaks. Clean up and repair as necessary. 6) Using Hand pressure testing pump, increase pressure to 6 Bar gradually, checking for any leaks or failures. 7) Leave the test for 12 hours (overnight) and leave under pressure until screeding/concrete works are complete. 8) Operatives should wear shatter resistant safety glasses, hard hat and gloves for this task as an additional safety measure. 9) Wet Vac/Spill kits should be on hand to clean up any spillages.',
+    '1', '2', '2'],
+  ['4.0', 'Use of Compressor to remove water / from pipework', 'Pipe Failure/ Component Failure/ Spills', 'WMS Site Operatives', '2', '1', '2',
+    '1) Confirm discharge location with the site manager. The medium being removed from the system will be raw water used for pressure testing however it is good practice to confirm the drainage system is suitable for discharge. 2) Before the compressor is switched on, the inlet and outlet drain valves should be open to ensure pressure is not built up in the system. 3) Compressor output should not exceed 1 Bar. If the pressure increases beyond this the compressor should be switched off to allow the water to naturally syphon out of the system and let the pressure reduce before switching the tool back on. 4) The drain hose should be held firmly or fixed to the drain/container to prevent the hose whipping as the last bit of water exits the system. 5) The operative needs to monitor the levels in the container and stop the compressor/flow of water prior to the container overflowing. 6) Any spills should be collected using a wet vac or spill kit. 7) Standard PPE including safety glasses should be worn.',
+    '1', '1', '1'],
+  ['5.0', 'Use of Stapler/Pipe tacker', 'Cuts/Infections/ Repetitive Strain', 'WMS Operatives', '2', '3', '6',
+    '1) When using the stapler to fix the heating pipes in place, gloves with a cut and puncture level rating of 5 must be always worn to minimise cuts/punctures to hands. 2) The stapler is of a design that it is held in the upright position, so the operative does not need to bend over whilst using it and fingers are kept away from the mouth of the stapler. 3) If the staples are lodged and not being released, then the stapler can be turned on its side the front cover lifted, and the misfiring staple removed using a screwdriver. 4) The use of the stapler is a mechanical process not an automated process and so risks of injury are low. 5) Short breaks between each loop installation should be taken to reduce repetitive strain.',
+    '2', '1', '2'],
+  ['6.0', 'Use of Hand Held Powered Screwdriver to fix manifold to wall', 'Electrocution, Fire, Slips, Trips & Falls, HAVS', 'WMS Operatives', '3', '3', '9',
+    '1) Wherever possible battery-operated tools will be utilised. Hand tools will be inspected weekly. 2) PAT testing every 3 months of the Battery Chargers. 3) If battery chargers are used on site they should only be placed in designated charging cabinets. Ensure batteries are in good condition and genuine to reduce the risk of fire. 4) HAVS monitoring should be undertaken if any other hand operated power tools are being used at the same time. Otherwise, the assessment shows that the residual risk of using a drill driver/impact driver is within acceptable vibration and impact levels.',
+    '1', '3', '3'],
+  ['7.0', 'Heating pipe work', 'Manual Handling Injuries, Trips, Falls, Trapped Fingers', 'WMS Operatives', '3', '3', '9',
+    '1) PE-RT pipework typically comes in reels of 500m lengths. The roll which weighs 49kg will be delivered on pallets for mechanical offload by the site team as close to the workface as possible. 2) Once off loaded the reel will be manually handled by rolling it into the building to the workforce area where it is to be used. 3) The pipe reel will then be rolled onto a pipe winder and unwound to the required lengths prior to fixing in place. 4) Where works are above ground level ie first and second floor, smaller 240m coils of pipe will be delivered to site which can be lifted safely by hand.',
+    '1', '3', '3'],
+  ['8.0', 'Use of Pipe Cutter', 'Cuts, Trapped Fingers, Amputation', 'WMS Operatives', '3', '2', '6',
+    '1) This is a hand operated piece of equipment. The piece of plastic pipework is to be placed in between the jaws and the blade and the blade is moved towards the pipe in a ratchet movement to cut through the pipe. 2) Operatives must always keep fingers away from the blade and wear gloves with a minimum cut level 5 as included in the standard supplied PPE kit.',
+    '1', '3', '3'],
+  ['9.0', 'Cutting Polythene using knife', 'Cuts/Lacerations', 'WMS Operatives', '3', '3', '9',
+    '1) Knives should be no more than 2 inches and have a retractable blade or blade cover such as a stanley knife or safety blade. 2) Operatives should always make cuts moving away from their body. 3) Ensure blade is sheathed when not in use. 4) Cut level 5 gloves should be worn when using any blade.',
+    '2', '2', '4']
+];
+
+function buildWordDocument(d, mapImgData) {
+  var out = [];
+  function esc(v) { return escHtml(v == null ? '' : v); }
+  function fmtDate(s) { return s ? new Date(s).toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'}) : 'TBC'; }
+  function h1(txt) { out.push('<h1>' + esc(txt) + '</h1>'); }
+  function h2(txt) { out.push('<h2>' + esc(txt) + '</h2>'); }
+  function para(txt) {
+    if (!txt) return;
+    String(txt).split('\n').forEach(function(line) {
+      if (line.trim()) out.push('<p>' + esc(line) + '</p>');
+    });
+  }
+  function table(rows, opts) {
+    opts = opts || {};
+    out.push('<table' + (opts.style ? ' style="' + opts.style + '"' : '') + '>');
+    rows.forEach(function(r) {
+      out.push('<tr>');
+      r.forEach(function(cell) {
+        var tag = opts.headerRows && opts.headerRows.indexOf(rows.indexOf(r)) >= 0 ? 'th' : 'td';
+        out.push('<' + tag + '>' + esc(cell) + '</' + tag + '>');
+      });
+      out.push('</tr>');
+    });
+    out.push('</table>');
+  }
+
+  // Cover / header
+  var lEl = document.getElementById('wmsLogo');
+  var lSrc = '';
+  if (lEl && lEl.complete && lEl.naturalWidth) {
+    try {
+      var tc = document.createElement('canvas');
+      tc.width = lEl.naturalWidth; tc.height = lEl.naturalHeight;
+      var tx = tc.getContext('2d'); tx.drawImage(lEl, 0, 0);
+      var id = tx.getImageData(0, 0, tc.width, tc.height);
+      var pd = id.data;
+      for (var i = 0; i < pd.length; i += 4) { if (pd[i] < 40 && pd[i+1] < 40 && pd[i+2] < 40) pd[i+3] = 0; }
+      tx.putImageData(id, 0, 0);
+      lSrc = tc.toDataURL('image/png');
+    } catch (e) { lSrc = lEl.src; }
+  }
+  out.push('<div style="text-align:center;padding-bottom:10px;border-bottom:3px solid #AB242A;margin-bottom:14px">');
+  if (lSrc) out.push('<img src="' + lSrc + '" style="height:55px;display:block;margin:0 auto 6px">');
+  out.push('<div style="font-size:12pt;color:#666;font-weight:bold">Health and Safety and Risk Assessment Manual</div></div>');
+
+  out.push('<h2>Project and H&amp;S Submittal Details</h2>');
+  table([
+    ['Name of Client:', esc(d.clientName)],
+    ['Project Name / Address:', esc(d.projectName)],
+    ['Project Reference No:', esc(d.projectRef)],
+    ['Project Manager / (Issued By):', esc(d.projectManager)],
+    ['Site Address:', esc(d.siteAddress)],
+    ['UFH System(s):', esc(d.systems)],
+    ['Site Working Hours:', esc(d.workingHours)],
+    ['Submission Issue No:', esc(d.submissionIssueNo || '01')],
+    ['Submission Issue Date:', esc(fmtDate(d.issueDate))]
+  ]);
+
+  h1('Health and Safety Policy Statement');
+  para('The following is a statement of the organisations Health & Safety Policy in accordance with Section 2 of the Health & Safety at Work Act 1974.');
+  para('It is the Policy of WMS Underfloor Heating Limited to ensure, so far as reasonably practicable, the Health, Safety and Welfare of all our employees working for the company and other persons who may be affected by our undertakings.');
+  para('WMS Underfloor Heating Limited acknowledges that the key to successful Health & Safety Management requires an effective policy, organisation and arrangements, which reflect the commitment of senior management. To maintain that commitment, we will continually measure, monitor and revise where necessary, an annual plan to ensure that Health & Safety standards are adequately maintained.');
+  para('The Managing Director will implement the Company Health & Safety Policy and recommend any changes to meet new circumstances. WMS Underfloor Heating Limited recognises that successful health and safety management contributes to successful business performance and will allocate adequate finances and resource to meet these needs.');
+  para('The Management of WMS Underfloor Heating Limited looks upon the promotion of health and safety measures as a mutual objective for themselves and their employees. It is therefore, the policy of Management to do all that is reasonably practicable to prevent personal injury and damage to property. Also, the organisation aims to protect everyone, including visitors and members of the public, insofar as they come into contact with our activities, from any foreseeable hazard or danger.');
+  para('All employees have duties under the Health & Safety Work Act 1974 and are informed of their personal responsibilities to take due care of the health and safety of themselves and to ensure that they do not endanger other persons by their acts or omissions. Employees are also informed that they must cooperate with the organisation in order that it can comply with the legal requirements placed upon it and in the implementation of this policy. WMS Underfloor Heating Limited will ensure continued consultation with the workforce to enable all viewpoints and recommendations to be discussed at regular intervals.');
+  para('The organisation will ensure a systematic approach to identify hazards, assess the risk, and determine suitable and sufficient control measures and informing employees of the correct procedures needed to maintain a safe working environment. We will provide, so far as is reasonably practicable, safe places & systems of work, safe plant & machinery, safe handling of materials & substances, adequate safety equipment and ensure that appropriate information, instruction, training and supervision is given.');
+  para('We regard ALL health and safety legislation as the minimum standard and expect Management to achieve their targets without compromising health and safety. A signed copy of this statement is available on request.');
+
+  h1('Method Statement');
+  h2('Personnel Involved');
+  var pRows = [['Role/Trade', 'Name']];
+  pRows.push(['WMS Project Manager', esc(d.pmName)]);
+  (d.installers || []).forEach(function(ins) { pRows.push([esc(ins.role || 'WMS Installer'), esc(ins.name || 'TBC')]); });
+  pRows.push(['WMS Aftersales Manager', esc(d.aftersalesName)]);
+  table(pRows, {headerRows:[0]});
+  table([
+    ['Role', 'Name', 'Responsibility', 'Tel'],
+    ['10. Site Manager', esc(d.siteManagerName), esc(d.siteManagerRole), esc(d.siteManagerTel)],
+    ['11. Visiting Manager', esc(d.visitingManagerName || d.pmName), esc(d.visitingManagerRole), esc(d.visitingManagerTel || d.pmTel)],
+    ['12. Aftersales Manager', esc(d.aftersalesName), esc(d.aftersalesRole), esc(d.aftersalesTel)],
+    ['13. SHE Representative', esc(d.sheRep), esc(d.sheRole), esc(d.sheTel)]
+  ], {headerRows:[0]});
+
+  h2('01. Description of the Task/Activity');
+  para('INSTALLATION OF UNDERFLOOR HEATING USING THE ' + String(d.systems || '').toUpperCase() + ' SYSTEM');
+  table([
+    ['05. Start Date/Time:', esc(d.startDate || 'TBC')],
+    ['06. Finish Date/Time:', esc(d.finishDate || 'As per schedule')]
+  ]);
+  h2('07. Scope of Works'); para(d.scopeOfWorks);
+  h2('14. Key Plant and Tools'); para(String(d.keyPlant || '').replace(/\n/g, '. '));
+  h2('15. Key Materials'); para(String(d.keyMaterials || '').replace(/\n/g, '. '));
+  h2('16. Residual Hazards');
+  para('Refer to Site Specific Risk Assessments. Details of fire and emergency arrangements will be detailed in the site induction. All works are at slab level - no access equipment required. No confined spaces. Edge protection not necessary.');
+  h2('17. Training Requirements');
+  para('CSCS Card. All site operatives to attend the site induction and abide by the site rules. Toolbox talks as and when required. All work undertaken by qualified competent persons.');
+  h2('18. Deliveries'); para(d.deliveries);
+  h2('19. Parking'); para(d.parking);
+  h2('20. Pre UFH Installation Checklist for Site Manager');
+  [
+    '1. When not included in our scope of works, stud partitions, kitchen/bathroom/bedroom furniture and units to be clearly marked out on the insulation or subfloor or joists prior to UFH installation.',
+    '2. Where the manifold is to be fixed to a stud partition a timber manifold board must be in place at the correct manifold location, prior to WMS starting works.',
+    '3. UFH working areas are to be swept clean, be clear from debris and materials and kept clear of other trades.',
+    '4. WMS insulating areas to be swept and dry with no high spots on sub-floor from cement debris, plank cambers, steels etc.',
+    "5. Builder's works must be completed in advance. Holes through walls etc.",
+    '6. Adequate lighting and 110V power supply at a distance of 10 metres from the UFH area must be available.',
+    '7. Has DPM been included to ground levels or in the slab if WMS not providing?',
+    '8. Site must provide means for lifting materials up if installation is to be above ground level.',
+    '9. Safe working practices - fall protection must be in place where floor openings are present or if a plated system is installed and a sub floor has not been created yet.',
+    '10. Any split levels to be aware of - how will pipe reach across level change.',
+    '11. Joists at 400 centres where applicable. Steels and noggins to be 20mm below top of joists to allow pipework to cross over.'
+  ].forEach(para);
+  h2('21. Pre UFH Installation Site Checks by WMS Operatives');
+  para('WMS installers will conduct their own risk analysis of the site, working area & associated risks before commencing works, regardless of whether a site specific inspection / survey has been undertaken previously by WMS personnel or not.');
+  para('a. Any resultant or any raised H&S concerns shall be reported to WMS Project Manager & works shall NOT be commenced until issues have been resolved by management decision / action.');
+  para('b. Check that insulation laid by others is level & does not rock potentially causing the screed to crack at a later date and insulation between battens is 25mm below top level.');
+  para('c. Installers should also ensure that UFH designs / layouts correspond to the actual building layout. Any variations must be reported to WMS Project Manager prior to commencing works.');
+
+  h2('Sequence of Operations - System Diagram(s)');
+  (d.selectedKeys || []).forEach(function(key) {
+    if (key === 'breaking_concrete' || key === 'scc_concrete') return;
+    var sysData = SYSTEM_DATA[key];
+    var sysName = sysData ? sysData.name : key;
+    var imgObj = getSysImage(key);
+    out.push('<h3>' + esc(sysName) + ' Cross-Section Diagram</h3>');
+    if (imgObj) out.push('<p><img src="' + imgObj.data + '" style="max-width:100%;border:1px solid #ccc"></p>');
+    if (sysData && sysData.sequence) {
+      h2(sysName + ' - Sequence of Operations');
+      para(sysData.sequence);
+    }
+  });
+
+  h2('22. Sequence of Operations for Balancing');
+  var bal = (d.selectedKeys || []).length > 0 && SYSTEM_DATA[d.selectedKeys[0]] ? SYSTEM_DATA[d.selectedKeys[0]].balancing : '';
+  para(bal || 'Engineers will balance flow in accordance with the design revision. Check the manifold for visible leaks and that static pressure is maintained. Confirm all valves open. Lock flow meters. Set thermostats to specified settings and leave system in correct working order.');
+  h2('23. Method of Access and Egress');
+  para('Access to the working area will be the main site and building entrances, designated walkways and via internal staircases where applicable.');
+  h2('24. Required PPE');
+  var ppeRows = [['PPE Item', 'Required']];
+  (d.ppeItems || []).forEach(function(item) { ppeRows.push([esc(item), 'Yes']); });
+  table(ppeRows, {headerRows:[0]});
+  h2('25. Emergency Procedures'); para(d.emergencyProc);
+  h2('26. First Aid Facilities');
+  table([
+    ['Name of First Aider:', esc(d.firstAider)],
+    ['First Aid Box Location:', esc(d.firstAidBox)],
+    ['Nearest A&E Hospital:', esc(d.hospitalName) + ', ' + esc(d.hospitalAddress)]
+  ]);
+  para('For directions use sat nav with address: ' + d.hospitalName + ', ' + d.hospitalAddress);
+  if (hospitalLat && siteLat) para('Approx. straight-line distance from site to nearest A&E: ' + Math.round(milesBetween(siteLat, siteLng, hospitalLat, hospitalLng)) + ' miles');
+  if (mapImgData) out.push('<p><img src="' + mapImgData + '" style="max-width:100%;border:1px solid #ccc"></p>');
+  h2('27. Other Information and Comments');
+  [
+    '1) Valid CSCS cards must be shown at induction.',
+    '2) WMS installers are NOT authorised to approve significant changes to design, as this may affect the functionality of the completed system at a later date. Notification of changes must be made through the Working Foreman/Lead Installer to the WMS Project Manager, who will agree with the client a new course of action and in turn advise/instruct the on-site installers.',
+    '3) WMS operatives shall uphold high standards of housekeeping at all times. All waste shall be placed in skips/facility provided on-site by the Principal Contractor.',
+    '4) Action will be taken by WMS operatives to guard against others risking slipping, tripping, falling on power leads and compressor hoses by erecting temporary barricades to prevent access to working areas by other trades. Site barriers to be used if available.',
+    '5) Completion of a signed Pressure Test Certificate (on per manifold basis) signifies handover on completion to the client. WMS liability is hereby ended at this point in time for any damages or faults arising to the system at any point after such time.',
+    '6) Manifold / system pressure should be maintained at as tested and certified degree for duration of sub and finished floor laying processes. The pressure should be periodically monitored (on the manifold pressure gauge) by party responsible at the time for screed and floor laying.',
+    '7) Whilst environmental climate and pressure changes can affect air pressure in any UFH system, this WILL be negligible. Any significant decrease in pressure could potentially indicate damage / leaks to UFH pipework.',
+    '8) Any suspected or confirmed damage / leaks to UFH system should be reported immediately to WMS Project Manager. WMS operatives are NOT authorised to perform repairs without expressed prior permission. Such circumstances will affect pipework warranties / guarantees.',
+    '9) UFH systems should NOT be fired-up for a period of at least 7 days from date of completion of screeding, where flow screeds have been laid, and a period of at least 21 days, in situations where conventional sand/cement screeds have been laid. After such periods have elapsed the UFH should be operated in accordance with manufacturers guidelines for screed materials, to prevent premature shrinkage/cracking.',
+    '10) Prior to the commencement of WMS works, the building should be watertight and the intended heated floor area swept clean and cleared of other trades materials and waste.',
+    '11) Any builders work / holes through walls required for UFH pipework are to be undertaken prior to WMS works, by principal contractor in conjunction with WMS drawings. WMS installers will not be equipped with or competent for the use of necessary items / tools to undertake such works.'
+  ].forEach(para);
+  if (d.otherComments && d.otherComments.trim()) para('Additional comments: ' + d.otherComments);
+
+  // CONSTRUCTION RISK ASSESSMENTS
+  h1('28. Construction Risk Assessments');
+  table([
+    ['Project Title:', esc(d.projectName) + '  |  Project No: ' + esc(d.projectRef)],
+    ['Risk Assessment No:', esc(d.projectRef) + '-01  |  Date Prepared: ' + esc(d.issueDate || 'TBC') + '  |  Next Review Date: (3 months or if tasks change)'],
+    ['Task Description:', 'Generic RAMS']
+  ]);
+  para('Notes: Through reading this Risk Assessment we confirm that should you have any issues or worries concerning your working practices, you should bring them immediately to the attention of your Project Manager and the Site Manager. Do not work under duress from any persons at WMS or on-site. Should you not wish to work due to health or safety issues, you will not be forced to do so and there will be no risk to your current employment. This will of course be subject to full investigation by your supervisors.');
+
+  var raHead = '<tr style="background:#505050;color:#fff"><th>Ref</th><th>Activity</th><th>Hazard(s) Identified</th><th>Affected Groups</th><th>S</th><th>P</th><th>Risk</th><th>Control Measures</th><th>S</th><th>P</th><th>After</th></tr>';
+  out.push('<table style="font-size:8pt">' + raHead + WORD_RA_GENERIC.map(wordRaRow).join('') + '</table>');
+  out.push('<p style="font-weight:bold;background:#787878;color:#fff;padding:4px 6px">Task Description: Task Specific Risk Assessments for the installation of Underfloor Heating Pipework</p>');
+  var raHead2 = '<tr style="background:#787878;color:#fff"><th>Ref</th><th>Activity</th><th>Hazard(s) Identified</th><th>Affected Groups</th><th>S</th><th>P</th><th>Risk</th><th>Control Measures</th><th>S</th><th>P</th><th>After</th></tr>';
+  out.push('<table style="font-size:8pt">' + raHead2 + WORD_RA_TASK.map(wordRaRow).join('') + '</table>');
+  para('The risk level associated with these tasks/areas has been reduced to as low as reasonably practicable.');
+  table([['Signature of Assessor:', esc(d.siteManagerName || d.pmName || ''), 'Date:', esc(d.issueDate || '')]]);
+
+  // Risk key / legend
+  h2('Risk Assessment Key');
+  out.push('<table style="width:auto;display:inline-table;vertical-align:top;margin-right:20px"><tr><th colspan="2">Severity</th></tr>' +
+    [['1', 'Insignificant / Minor / No Time Off, No loss'],
+     ['2', 'Lost Time, Recoverable Strains, Sprains, Dermatitis'],
+     ['3', 'Temporary Disability, Recoverable Minor Fracture'],
+     ['4', 'Permanent Disability, Survivable, Major Fractures']].map(function(r) { return '<tr><td style="text-align:center;font-weight:bold">' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('') +
+    '</table>');
+  out.push('<table style="width:auto;display:inline-table;vertical-align:top;margin-right:20px"><tr><th colspan="2">Likelihood</th></tr>' +
+    [['1', 'Impracticable'], ['2', 'Low'], ['3', 'Medium'], ['4', 'High'], ['5', 'Almost Certain']].map(function(r) { return '<tr><td style="text-align:center;font-weight:bold">' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('') +
+    '</table>');
+  out.push('<table style="width:auto;display:inline-table;vertical-align:top"><tr><th colspan="2">Risk Band</th></tr>' +
+    [['Low', '1 - 4', 1], ['Moderate', '5 - 9', 5], ['Considerable', '10 - 14', 10], ['High', '15 - 19', 15], ['Critical', '20 - 25', 20]].map(function(r) {
+      var bg = wordRaBandColor(r[2]);
+      var fg = r[2] >= 15 ? '#fff' : '#1e1a15';
+      return '<tr><td>' + r[0] + '</td><td style="background:' + bg + ';color:' + fg + ';text-align:center;font-weight:bold">' + r[1] + '</td></tr>';
+    }).join('') + '</table>');
+  out.push('<p></p><table style="width:auto"><tr><th></th><th colspan="5" style="text-align:center">Likelihood</th></tr>');
+  [5, 4, 3, 2, 1].forEach(function(sev) {
+    out.push('<tr><th>Severity ' + sev + '</th>');
+    for (var like = 1; like <= 5; like++) {
+      var val = sev * like, bg = wordRaBandColor(val), fg = val >= 15 ? '#fff' : '#1e1a15';
+      out.push('<td style="background:' + bg + ';color:' + fg + ';text-align:center;font-weight:bold">' + val + '</td>');
+    }
+    out.push('</tr>');
+  });
+  out.push('</table>');
+
+  if (d.hazards && d.hazards.length > 0) {
+    h2('Additional Project-Specific Hazards');
+    var hRows = [['#', 'Hazard', 'Likelihood', 'Severity', 'Score']];
+    d.hazards.forEach(function(h) { hRows.push([esc(h.num), esc(h.desc), esc(h.likelihood), esc(h.severity), esc(h.score)]); });
+    table(hRows, {headerRows:[0]});
+  }
+
+  // COSHH
+  h1('29. COSHH Assessment - Survey Marking Paint (WMS01)');
+  table([
+    ["Product Name(s):", "'No Nonsense' Survey Marking Paint", "COSHH Assess. No.:", "WMS01"],
+    ['Description:', 'Semi-Permanent Survey Line Marking Paint', 'Date:', 'TBC'],
+    ['WEL:', 'Paint Overspray & Vapours. Total inhalable dust 10mg/m3. Respirable dust 4mg/m3', '', ''],
+    ['Task/Activity:', 'Marking out any fixtures/fittings, walls, furniture, or other items not yet installed (by other trades), to be avoided when laying UFH pipework.', '', ''],
+    ['Risk Phrases:', 'R36, R12, R52/53, R66, R67', 'Safety Phrases:', 'S2, S16, S23, S26, S29/56, S46, S51'],
+    ['Supplier:', 'Screwfix Direct Ltd, Trade House, Mead Avenue, Houndstone Business Park, Yeovil, Somerset, BA22 8RT', 'Tel:', '0500 41 41 41 / Fax: 0800 056 22 56'],
+    ['MSDS Attached:', 'No - copy available on request', '', '']
+  ]);
+  table([
+    ['SUBSTANCE PROPERTIES', '', '', ''],
+    ['Flammable/Extremely Flammable: YES', 'Oxidiser: No', 'Explosive: No', 'Harmful: YES'],
+    ['Toxic/Very Toxic: No', 'Irritant: YES', 'Dangerous to Environment: YES', 'Corrosive: No'],
+    ['ROUTE OF EXPOSURE', '', 'PERSONS AT RISK', ''],
+    ['Skin: X', 'Eyes: X', 'Users of product: X', 'Members of Public: -'],
+    ['Inhalation: X', 'Ingestion: X', 'Other Workers: X', 'Young Persons: -'],
+    ['PPE REQUIREMENTS', '', '', ''],
+    ['Gloves: EN388/EN374-3 - YES', 'Overalls: N/A', 'Respiratory: EN143/EN149 (FFP2) - YES', 'Eye Protection: EN166/EN172 - YES']
+  ], {headerRows:[0, 3, 6]});
+  table([
+    ['ADDITIONAL CONTROL MEASURES', ''],
+    ['General Precautions', 'Control Measures'],
+    ['Ensure PPE worn. Inform all site management & other personnel in working area of risks. Ensure adequate supervision at all times. Keep cap on tin when not in use.', 'Wear EN388/EN374-3 gloves, EN149 FFP2 respiratory protection, EN166/EN172 eye protection when using.'],
+    ['First Aid/Hygiene', 'Fire Precautions'],
+    ['Wash skin with soap and clean water. If eye contact: flood eye with clean water for at least 10 minutes and seek immediate medical attention. If inhalation or ingestion: seek immediate medical attention. Wash out mouth with clean water.', 'Keep in well ventilated areas and away from any heat source. Store in dry, well ventilated, secure store. Protect from temperatures above 50 degrees C.'],
+    ['Spillage Procedures', 'Disposal Requirements'],
+    ['Clean up using chemical spill kit provided by Principal Contractor. Place into suitable container for disposal.', 'Dispose as normal builders waste or metal recycling via licensed waste contractor. Do NOT pierce or burn pressurised container.']
+  ], {headerRows:[0, 1, 3, 5]});
+  para('WMS use of such substances is extremely negligible. IT IS THE RESPONSIBILITY OF THE PRINCIPAL CONTRACTOR TO MARK OUT CLEARLY & ACCURATELY ANY FIXTURES/FITTINGS/WALLS ETC, NOT YET INSTALLED, THAT NEED TO BE AVOIDED WITH UFH PIPEWORK.');
+
+  h1('COSHH Assessment - PH Gas Leak Detector 500ml (WMS02)');
+  table([
+    ['Product Name(s):', 'PH Gas Leak Detector 500mL', 'COSHH Assess. No.:', 'WMS02'],
+    ['Description:', 'Leak detection spray', 'Date:', 'TBC'],
+    ['WEL:', 'FORMALDEHYDE. TWA 8 Hours - 2 ppm, 2.5 mg/m3. STEL 15 min - 2 ppm, 2.5 mg/m3', '', ''],
+    ['Task/Activity:', 'Spray - To scatter (liquid) in the form of fine particles to detect leaks in UFH pipework.', '', ''],
+    ['Risk Phrases:', 'NC (Not classified)', 'Safety Phrases:', 'S2, S25, S35'],
+    ['Supplier:', 'Arctic Products Limited, Nina Works, Gelderd Road, Leeds, LS12 6NA', 'Tel:', '0844 871 8461']
+  ]);
+  table([
+    ['SUBSTANCE PROPERTIES', '', '', ''],
+    ['Flammable: No', 'Oxidiser: No', 'Explosive: No', 'Harmful: No'],
+    ['Toxic/Very Toxic: No', 'Irritant: No', 'Dangerous to Environment: No', 'Corrosive: No'],
+    ['ROUTE OF EXPOSURE', '', 'PERSONS AT RISK', ''],
+    ['Skin: X', 'Eyes: X', 'Users of product: X', 'Members of Public: -'],
+    ['Inhalation: -', 'Ingestion: X', 'Other Workers: X', 'Young Persons: -'],
+    ['PPE REQUIREMENTS', '', '', ''],
+    ['Gloves: EN388/EN374-3 - YES', 'Overalls: N/A', 'Respiratory: N/A', 'Eye Protection: EN166/EN172 - YES']
+  ], {headerRows:[0, 3, 6]});
+  table([
+    ['ADDITIONAL CONTROL MEASURES', ''],
+    ['General Precautions', 'Control Measures'],
+    ['Ensure PPE worn. Inform all site personnel of risks. Ensure adequate supervision at all times.', 'Ensure work area well ventilated. Keep all doors and windows open prior to use.'],
+    ['First Aid/Hygiene', 'Fire Precautions'],
+    ['INGESTION: DO NOT INDUCE VOMITING. Rinse mouth thoroughly. Obtain immediate medical attention. SKIN CONTACT: Wash off with water. Seek medical attention if irritation persists. EYE CONTACT: Wash eyes with plenty of water for at least 15 minutes. Get medical attention.', 'Not flammable. Use fire-extinguishing media appropriate for surrounding materials.'],
+    ['Transport/Storage', 'Spillage/Disposal'],
+    ['Not classified for transport. No transport warning sign required. Keep upright in original container. Protect from frost.', 'Wipe up with absorbent cloths and rinse area. Wear gloves. Dispose of small quantities to foul sewer diluted with water.']
+  ], {headerRows:[0, 1, 3, 5]});
+  para('WMS use of such substances is extremely negligible. IT IS THE RESPONSIBILITY OF THE PRINCIPAL CONTRACTOR TO MARK OUT CLEARLY & ACCURATELY ANY FIXTURES/FITTINGS/WALLS ETC, NOT YET INSTALLED, THAT NEED TO BE AVOIDED WITH UFH PIPEWORK.');
+
+  if (d.selectedKeys && d.selectedKeys.indexOf('scc_concrete') >= 0) {
+    h1('COSHH Assessment - Self-Compacting Concrete (Wet Mix)');
+    table([
+      ['Product:', 'Self-Compacting Concrete (Wet Mix) - COSHH Ref: WMS03', '', ''],
+      ['Supplier:', 'Cemex UK Operations Ltd, Coventry, CV3 2DT', 'Tel:', '01788 517000 (OOH: 01932 568833)'],
+      ['Description:', 'Cement and aggregate based grey fluid paste/liquid with low odour', '', ''],
+      ['Task/Activity:', 'Installation of factory batched SCC slabs on top of underfloor heating pipework', '', ''],
+      ['WEL:', 'Inhalable dust 10mg/m3, Respirable dust 4mg/m3 (8hr TWA). Silica 0.05mg/m3', '', ''],
+      ['Harmful:', 'Yes - Irritant, risk of serious eye damage, may cause sensitisation by skin contact', 'Flammable:', 'No'],
+      ['Exposure Routes:', 'Skin (X), Eyes (X), Ingestion (X), Inhalation - dry product only', '', ''],
+      ['PPE:', 'EN388/EN374-3 waterproof gloves, FFP2 dust mask (dry product), EN166 eye protection, waterproof boots and trousers, hard hat', '', '']
+    ]);
+    para('Wet Concrete, Mortar and Screed: Avoid skin and eye contact. The risks of dermatitis and burns are increased if the material is allowed to continue rubbing against the skin (e.g. inside boots, in gloves or through saturated clothing). Do not kneel or sit on the wet materials without the correct personal protective clothing.');
+    para('Eye Contact: Irrigate immediately with copious amounts of clean water. Seek immediate medical attention. Skin Contact: Wash immediately with clean water, removing any contaminated clothing. If irritation persists seek medical attention. Ingestion: Wash out mouth with water and give patient plenty of water to drink. Do not induce vomiting. Seek medical advice.');
+    para('Storage: Not to be poured when temperatures are 5 degrees C or lower. Spillage: Recover bulk spillage without delay while material is still in non-hardened state, using suction system or mechanical shovel. Prevent from entering drains, sewers or water courses. Disposal: Not hazardous. Disposal subject to local authority current requirements.');
+
+    h1('COSHH Assessment - Hatcrete SCC Pro (Curing Compound/Sealer)');
+    table([
+      ['Product:', 'Hatcrete SCC Pro - COSHH Ref: WMS04', '', ''],
+      ['Supplier:', 'PICS Ltd, Red Shute Hill Ind Estate, Hermitage, Berkshire, RG18 9QL', 'Tel:', '01635 202224'],
+      ['Description:', 'Concrete and Mortar Admixture/Sealer (White Liquid). Post treatment of concrete surface via pump sprayer.', '', ''],
+      ['WEL:', 'Dermal Contact - 106mg/kg body weight/day. Inhalation - 35mg of substance/m3', '', ''],
+      ['Risk Phrases:', 'H302: Harmful if swallowed. H373: May cause organ damage through prolonged/repeated exposure.', '', ''],
+      ['Harmful:', 'Yes (if swallowed)', 'Flammable:', 'No'],
+      ['Exposure Routes:', 'Skin (X), Eyes (X), Ingestion (X)', '', ''],
+      ['PPE:', 'EN388/EN374-3 gloves, EN166/EN172 eye protection', '', '']
+    ]);
+    para('General: Ensure work area is well ventilated. Ensure all doors and windows are open prior to use. Avoid contact with skin and eyes. Never eat, drink or smoke during use.');
+    para('First Aid - Ingestion: DO NOT INDUCE VOMITING. Rinse mouth thoroughly. Obtain immediate medical attention. Skin Contact: Wash off with water. Seek medical attention if irritation persists. Eye Contact: Promptly wash eyes with plenty of water while lifting eyelids. Continue rinsing for at least 15 minutes and get medical attention.');
+    para('Storage: Keep upright. Keep in original container. Protect from frost. Avoid contact with skin and eyes. Transport: Not classified for transport. No transport warning sign required. Spillage: Wipe up with absorbent cloths and rinse area afterwards. Wear gloves whilst handling spilled material. Disposal: Dispose of small quantities to foul sewer, diluting with plenty of water.');
+  }
+
+  h1('30. HAVS Assessment');
+  table([
+    ['Tool', 'Vib (m/s2)', 'Exp Pts/hr', 'Time to EAV 2.5m/s2', 'Time to ELV 5m/s2', 'Exp Duration', 'Partial Exp Pts', 'Partial Exp m/s2 A(8)'],
+    ['18v Battery Drill', '<2.5ms2', '13', '8hrs 0min', '>24hrs 0min', '2hrs 0min', '25', '1.3']
+  ], {headerRows:[0]});
+  para('All tools used are within acceptable vibration exposure limits. No additional HAVS control measures are required beyond standard PPE and tool maintenance procedures. Battery operated tools have been assessed and may be used for up to 8 hours a day without risk. Recommended use in short bursts of no more than 5 minutes with breaks between uses.');
+
+  h1('31. Noise Assessment');
+  h2('Battery Drill');
+  para('The A-rated noise level of the power tool is typically as follows: Sound pressure level 70 dB(A); Sound power level 80 dB(A). Uncertainty K = 3 dB.');
+  h2('110v Compressor');
+  para('Sound pressure level @ 4m: 88 dB(A). Sound power level: 97 LWA.');
+  para('Operatives should use hearing protection (EN352-3 Helmet Mounted) when operating the air compressor for extended periods. Battery operated tools are assessed as within acceptable noise limits and may be used in short bursts without protection (limited to maximum 5-minute sessions with clear 15-minute break between sessions).');
+
+  out.push('<div style="page-break-before:always"></div>');
+  h1('Method Statement Signing Sheet for WMS Operatives');
+  para('By signing this sheet I confirm that I have read and fully understood the requirements set out in this method statement.');
+  out.push('<table><tr><th style="background:#505050;color:#fff">Name</th><th style="background:#505050;color:#fff">Signature</th><th style="background:#505050;color:#fff">Date</th></tr>' +
+    '<tr><td style="height:30px">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>'.repeat(6) + '</table>');
+
+  out.push('<p style="text-align:center;color:#999;margin-top:20px">WMS Underfloor Heating Ltd | Tel: 01707 649922 | www.wms-underfloor.co.uk</p>');
+
+  return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+    '<head><meta charset="utf-8"><title>WMS RAMS - ' + esc(d.projectName || d.projectRef || 'Document') + '</title>' +
+    '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->' +
+    '<style>' +
+    '@page{size:21cm 29.7cm;margin:2cm}' +
+    'body{font-family:Calibri,Arial,sans-serif;font-size:10.5pt;color:#1e1a15}' +
+    'h1{color:#AB242A;font-size:15pt;border-bottom:2px solid #AB242A;padding-bottom:4px;margin-top:22px}' +
+    'h2{font-size:11.5pt;margin-top:14px;margin-bottom:4px}' +
+    'h3{font-size:10.5pt;color:#AB242A;margin-top:10px}' +
+    'p{margin:0 0 8px 0;line-height:1.4}' +
+    'table{border-collapse:collapse;width:100%;margin-bottom:10px}' +
+    'td,th{border:1px solid #ccc;padding:4px 7px;font-size:9pt;vertical-align:top;text-align:left}' +
+    'th{background:#f0f0f0}' +
+    'img{max-width:100%}' +
+    '</style></head><body>' + out.join('') + '</body></html>';
+}
+
+async function downloadWord() {
+  var btn = document.getElementById('genWordBtn');
+  var spinner = document.getElementById('genWordSpinner');
+  var banner = document.getElementById('successBannerWord');
+  btn.disabled = true; spinner.style.display = 'block'; banner.style.display = 'none';
+  try {
+    var d = collectData();
+    var mapImgData = cachedMapImg;
+    if (!mapImgData && hospitalLat && hospitalLng) {
+      try { mapImgData = await buildMapImage(hospitalLat, hospitalLng); } catch (e) {}
+    }
+    var html = buildWordDocument(d, mapImgData);
+    var blob = new Blob(['﻿' + html], {type: 'application/msword'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var fname = 'WMS_RAMS_' + (d.projectRef || 'document') + '_' + (d.issueDate || 'draft') + '.doc';
+    a.download = fname.replace(/[^a-z0-9_.]/gi, '_');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    spinner.style.display = 'none'; banner.style.display = 'block'; btn.disabled = false;
+  } catch (err) {
+    spinner.style.display = 'none'; btn.disabled = false;
+    alert('Word document error: ' + err.message); console.error(err);
+  }
+}
 
 async function downloadPDF() {
   var btn=document.getElementById('genBtn');
