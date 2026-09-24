@@ -852,6 +852,13 @@ var totalSections = 8;
 var selectedSystems = [];
 var hospitalLat = null, hospitalLng = null, siteLat = null, siteLng = null;
 var cachedMapImg = null;
+// Set only when opened from inside The Hub's Project tab (?wso=...), which points its iframe here
+// so a generated RAMS can be reported back for that project's own "RAMS created" list -- see
+// downloadPDF()'s postMessage below. Blank (and the postMessage skipped entirely) for anyone using
+// this tool standalone; this tool otherwise has no idea what "project" means and never will.
+var HUB_WSO = (function(){
+  try { return new URLSearchParams(location.search).get('wso') || ''; } catch(e) { return ''; }
+})();
 
 var sectionMeta = [
   {title:'Project details',sub:'Step 1 of 8 - Enter project information'},
@@ -2642,6 +2649,17 @@ async function downloadPDF() {
     var fname='WMS_RAMS_'+(d.projectRef||'document')+'_'+(d.issueDate||'draft')+'.pdf';
     fname=fname.replace(/[^a-z0-9_.]/gi,'_');
     doc.save(fname);
+    // Report back to The Hub (only when opened from inside its Project tab -- see HUB_WSO above) so
+    // this RAMS shows up on that project's own "RAMS created" list there, with a Save-to-SharePoint
+    // button next to it. This tool has no backend of its own, so postMessage to the parent window is
+    // the only channel there is; best-effort and silent on any failure -- never blocks the actual
+    // PDF download, which has already happened by this point regardless.
+    if (HUB_WSO && window.parent !== window) {
+      try {
+        var _pdfB64 = doc.output('datauristring').split(',')[1] || '';
+        window.parent.postMessage({type: 'rams_generated', wso: HUB_WSO, filename: fname, pdf_b64: _pdfB64}, '*');
+      } catch (e) {}
+    }
     // Save project JSON after a short delay to avoid browser blocking multiple downloads
     var saveData = collectData();
     saveData.hospitalLat = hospitalLat;
@@ -2842,6 +2860,22 @@ initHazards();
 goTo(0);
 document.getElementById('issueDate').value=new Date().toISOString().split('T')[0];
 restoreDraft();
+// Pre-fill Project details from what The Hub already knows about this project (?clientName=,
+// ?projectName=, ?siteAddress=, ?projectRef=, ?projectManager= alongside ?wso= -- the Hub's own
+// pull-from-ERP first if it didn't already have the data, see index.html's projOpenRams()) --
+// AFTER restoreDraft() above, and only into a field that's STILL blank, so a real unsaved draft
+// always wins over Hub-supplied data rather than being silently overwritten by it.
+(function(){
+  if (!HUB_WSO) return;
+  try {
+    var qp = new URLSearchParams(location.search);
+    ['clientName', 'projectName', 'siteAddress', 'projectRef', 'projectManager'].forEach(function(id){
+      var val = qp.get(id);
+      var el = document.getElementById(id);
+      if (val && el && !el.value) el.value = val;
+    });
+  } catch (e) {}
+})();
 // input/change cover typed fields; click covers the chip and system-card toggles
 document.addEventListener('input', queueDraft);
 document.addEventListener('change', queueDraft);
