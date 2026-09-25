@@ -859,6 +859,23 @@ var cachedMapImg = null;
 var HUB_WSO = (function(){
   try { return new URLSearchParams(location.search).get('wso') || ''; } catch(e) { return ''; }
 })();
+// The Hub's own page can't read this tool's scroll position (a cross-origin iframe can't expose its
+// contentWindow.scrollY to the parent at all -- a real browser security boundary, not something a
+// mouseenter/mouseleave or postMessage-less trick can work around), so its "minimise the chrome
+// above this tool" behaviour only ever fired from a manual button there. Forwarding our OWN scroll
+// position up via postMessage is the one channel that actually works cross-origin; rAF-throttled,
+// silent no-op standalone (no HUB_WSO) or outside an iframe, same guard as the postMessage below.
+if (HUB_WSO && window.parent !== window) {
+  var _scrollTicking = false;
+  window.addEventListener('scroll', function(){
+    if (_scrollTicking) return;
+    _scrollTicking = true;
+    requestAnimationFrame(function(){
+      try { window.parent.postMessage({type: 'tool_scroll', wso: HUB_WSO, scrollY: window.scrollY||0}, '*'); } catch(e) {}
+      _scrollTicking = false;
+    });
+  }, {passive: true});
+}
 
 var sectionMeta = [
   {title:'Project details',sub:'Step 1 of 8 - Enter project information'},
