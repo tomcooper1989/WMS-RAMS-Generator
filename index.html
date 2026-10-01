@@ -569,7 +569,7 @@ table.hazards{width:100%;border-collapse:collapse;background:var(--surface);font
 </aside>
 <div class="main">
   <div class="topbar">
-    <div><div class="topbar-title" id="ttitle">Project details</div><div class="topbar-sub" id="tsub">Step 1 of 8</div></div>
+    <div><div class="topbar-title" id="ttitle">Project details</div><div class="topbar-sub" id="tsub">Step 1 of 8</div><div class="topbar-sub" id="topbarRef" style="font-weight:600;color:var(--accent);"></div></div>
     <div style="display:flex;align-items:center"><div class="progress-pips" id="pips"></div><span class="progress-text" id="ptext">1 / 8</span></div>
   </div>
   <div class="content">
@@ -2824,6 +2824,20 @@ function populateForm(d) {
     mapEl.style.display = 'block';
     mapEl.innerHTML = '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=' + (hospitalLng-0.05) + ',' + (hospitalLat-0.03) + ',' + (hospitalLng+0.05) + ',' + (hospitalLat+0.03) + '&layer=mapnik&marker=' + hospitalLat + ',' + hospitalLng + '"></iframe>';
   }
+  updateTopbarRef();
+}
+
+// Project reference stays visible in the sticky topbar regardless of which step you're on --
+// the step-1 field itself scrolls out of view once you're deep in a later section (e.g. the risk
+// assessment), same problem the picking-list tool's WSO field had. Updated on every input (the
+// document-wide 'input' listener below), and after any bulk restore (populateForm, covering both
+// "Load previous RAMS" and the autosave draft) so it never shows a stale/blank ref after a reload.
+function updateTopbarRef() {
+  var el = document.getElementById('topbarRef');
+  if (!el) return;
+  var refInput = document.getElementById('projectRef');
+  var v = refInput ? refInput.value.trim() : '';
+  el.textContent = v ? ('Ref: ' + v) : '';
 }
 
 // ====== AUTOSAVE ======
@@ -2893,10 +2907,12 @@ restoreDraft();
     });
   } catch (e) {}
 })();
+updateTopbarRef();
 // input/change cover typed fields; click covers the chip and system-card toggles
 document.addEventListener('input', queueDraft);
 document.addEventListener('change', queueDraft);
 document.addEventListener('click', queueDraft);
+document.addEventListener('input', updateTopbarRef);
 
 // New-version reload banner. This app has no backend (see CLAUDE.md - static index.html only),
 // so there's no boot_id endpoint to poll like the other WMS tools. Instead this uses a HEAD
@@ -2937,6 +2953,25 @@ function reloadEverything(){
 }
 captureRamsVersion();
 setInterval(checkForNewRamsVersion, 15000);
+
+// When embedded in The Hub, report this page's own content height so Hub can size the iframe to
+// fit it exactly -- the whole Hub page becomes the one scrolling surface instead of this content
+// scrolling inside a fixed-height iframe box. Standalone (no parent) this is simply inert.
+// Debounced so a burst of DOM changes (e.g. switching wizard steps) sends one resize, not several.
+(function () {
+  if (window.top === window.self) return;
+  var lastSent = 0, debounceTimer = null;
+  function sendHeight() {
+    var h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    if (Math.abs(h - lastSent) < 4) return;
+    lastSent = h;
+    try { window.parent.postMessage({ type: 'wms_hub_resize', height: h }, '*'); } catch (e) {}
+  }
+  function queueSend() { clearTimeout(debounceTimer); debounceTimer = setTimeout(sendHeight, 150); }
+  window.addEventListener('load', sendHeight);
+  if (window.ResizeObserver) new ResizeObserver(queueSend).observe(document.body);
+  setInterval(sendHeight, 2000);
+})();
 </script>
 
 </body>
